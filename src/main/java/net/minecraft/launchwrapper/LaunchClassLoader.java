@@ -22,7 +22,7 @@ public class LaunchClassLoader extends ActualClassLoader {
     private static Manifest EMPTY = new Manifest();
     private final Map<String, Class<?>> cachedClasses = new ConcurrentHashMap<>();
     private final Set<String> invalidClasses = new HashSet<>(0);
-
+    public static boolean childLoadingEnabled = false;
     private final Map<String,byte[]> resourceCache = new ConcurrentHashMap<>(0);
     private final Set<String> negativeResourceCache = ConcurrentHashMap.newKeySet();
     public LaunchClassLoader(URL[] sources) {
@@ -33,6 +33,11 @@ public class LaunchClassLoader extends ActualClassLoader {
     public LaunchClassLoader(ClassLoader loader) {
         super(getUCP(), loader);
         Launch.classLoader = this;
+    }
+
+    @Override
+    public void addChild(ClassLoader child) {
+        super.addChild(child);
     }
     
     private static URL[] getUCP(){

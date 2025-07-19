@@ -27,6 +27,7 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
+import static net.minecraft.launchwrapper.LaunchClassLoader.childLoadingEnabled;
 import static top.outlands.foundation.boot.Foundation.LOGGER;
 import static top.outlands.foundation.boot.TransformerHolder.transformers;
 
@@ -86,7 +87,23 @@ public class ActualClassLoader extends URLClassLoader {
             }
         }
     }
+    private final List<ClassLoader> children = new ArrayList<>();
+    private ClassLoader from = null;
+    private static final Method MD_FIND_CLASS;
 
+    static {
+        Method mdFind = null;
+        try {
+            mdFind = ClassLoader.class.getDeclaredMethod("findClass", String.class);
+            mdFind.trySetAccessible();
+        } catch (Throwable ignored) {
+        }
+        MD_FIND_CLASS = mdFind;
+    }
+
+    public void addChild(ClassLoader child) {
+        children.add(child);
+    }
     
     public ActualClassLoader(URL[] sources) {
         this(sources, null);
@@ -173,6 +190,7 @@ public class ActualClassLoader extends URLClassLoader {
 
     @Override
     public Class<?> findClass(final String name) throws ClassNotFoundException {
+        if (this.equals(from)) return null;
         if (invalidClasses.contains(name)) {
             throw new ClassNotFoundException("Found " + name + " in invalid classes.");
         }
@@ -269,7 +287,27 @@ public class ActualClassLoader extends URLClassLoader {
             cachedClasses.put(transformedName, clazz);
             return clazz;
         } catch (Throwable e) {
-            invalidClasses.add(name);
+            boolean hasChildren = !children.isEmpty();
+            if (childLoadingEnabled && hasChildren) {
+                from = this;
+                for (ClassLoader child : children) {
+                    final String transformedName = transformName(name);
+
+                    try {
+                        Class<?> classe = (Class<?>) MD_FIND_CLASS.invoke(child, transformedName);
+                        if (classe != null) {
+                            cachedClasses.put(name, classe);
+                            from = null;
+                            return classe;
+                        }
+                    } catch (Exception e1) {
+                        from = null;
+                    }
+
+                }
+                from = null;
+            }
+            if (childLoadingEnabled || !hasChildren) invalidClasses.add(name);
             if (VERBOSE) {
                 LOGGER.debug("Failed to load class {}, caused by {}", name, e);
                 Arrays.stream(e.getStackTrace()).forEach(LOGGER::debug);
